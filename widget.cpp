@@ -1,4 +1,4 @@
-#include "widget.h"
+﻿#include "widget.h"
 #include "ui_widget.h"
 
 #include <QMessageBox>
@@ -9,6 +9,22 @@
 #include <QFile>
 #include <QPushButton>
 #include <QHBoxLayout>
+#include <QButtonGroup>
+#include <QTextStream>
+
+#include "literal_strings/literal_strings.h"
+#include "common_tools/common_tool_func.h"
+#include "logger/logger.h"
+
+const quint8 g_sptrum_threshold_num = 3;
+const int g_channel_per_card = 64;
+
+static const int g_min_eng_sptrm_val = 0;
+static const int g_max_eng_sptrm_val = 1000;
+
+static const char* g_data_save_folder = "./scan_result";
+static const char* g_eng_sptrm_scan_data_bfn = "eng_sptrum_scan_data";
+static const char* g_eng_sptrm_scan_data_ext = ".csv";
 
 Widget::Widget(QWidget *parent) :
     QWidget(parent),
@@ -16,13 +32,33 @@ Widget::Widget(QWidget *parent) :
 {
     ui->setupUi(this);
 
+
+    QButtonGroup *work_mode_btn_grp = new QButtonGroup(this);
+    work_mode_btn_grp->addButton(ui->manScanRBtn);
+    work_mode_btn_grp->addButton(ui->timerScanRBtn);
+    work_mode_btn_grp->addButton(ui->engSptrmScanRBtn);
+
+    ui->engSptrmScanRBtn->setChecked(true);
+    ui->startEngSpinBox->setMinimum(g_min_eng_sptrm_val);
+    ui->startEngSpinBox->setMaximum(g_max_eng_sptrm_val);
+    ui->endEngSpinBox->setMinimum(g_min_eng_sptrm_val);
+    ui->endEngSpinBox->setMaximum(g_max_eng_sptrm_val);
+    ui->stepEngSpinBox->setMinimum(g_min_eng_sptrm_val);
+    ui->stepEngSpinBox->setMaximum(g_max_eng_sptrm_val);
+
+    m_ui_cfg_rec.load_configs_to_ui(this, m_ui_cfg_rec_filter_in, m_ui_cfg_rec_filter_out);
+
     this->InitMember();
     this->InitUI();
     this->InitConnect();
+
+    update_ui_according_to_work_mode();
 }
 
 Widget::~Widget()
 {
+    m_ui_cfg_rec.record_ui_configs(this);
+
     delete ui;
     delete l103Controller;
 }
@@ -60,7 +96,6 @@ void Widget::InitMember()
     // 初始化自动停止定时器
     autoStopTimer = new QTimer(this);
     autoStopTimer->setSingleShot(true);
-    autoStopTimer->setInterval(10000);
 }
 
 void Widget::InitUI()
@@ -115,10 +150,37 @@ void Widget::InitConnect()
     
     // 连接定时器 -> this
     connect(autoStopTimer, &QTimer::timeout, this, &Widget::OnAutoStopTimeout);
+
+
+    connect(this, &Widget::scan_next_eng_sptrm_sig,
+            this, &Widget::scan_next_eng_sptrm_hdlr, Qt::QueuedConnection);
+    connect(this, &Widget::eng_sptrm_scan_finished_sig,
+            this, &Widget::eng_sptrm_scan_finished_hdlr, Qt::QueuedConnection);
 }
 
 void Widget::OnStartScan()
 {
+    if(WORK_MODE_ENG_SPTRM_SCAN == current_work_mode())
+    {
+        QString err_str;
+        if(!get_eng_sptrm_scan_info(&err_str))
+        {
+            QMessageBox::critical(this, "频谱扫描信息错误", err_str);
+            return;
+        }
+
+        err_str = QString("eng sptrm start: %1, end: %2, step: %3").arg(m_eng_sptrm_scan_info.start)
+                .arg(m_eng_sptrm_scan_info.end).arg(m_eng_sptrm_scan_info.step);
+        DIY_LOG(LOG_INFO, err_str);
+
+        m_eng_sptrm_raw_data.clear();
+        DIY_LOG(LOG_INFO, QString("engergy sptrum %1 scan start").arg(m_eng_sptrm_scan_info.current));
+        emit scan_next_eng_sptrm_sig();
+
+        update_ui_for_eng_sptrm_scan(true);
+        return;
+    }
+
     if (!l103Controller->SetStartScanning())
     {
         QMessageBox::critical(this, "启动失败", "启动扫描发生错误, 错误代码为" + QString::number(static_cast<quint8>(l103Controller->GetLastError())));
@@ -133,12 +195,21 @@ void Widget::OnStartScan()
     ui->verticalSlider->setEnabled(false);
     ui->pushButton_5->setEnabled(false);
     
-    // 启动自动停止定时器
-    autoStopTimer->start();
+    if(WORK_MODE_TIMER_SCAN == current_work_mode())
+    {
+        // 启动自动停止定时器
+        autoStopTimer->setInterval(10000);
+        autoStopTimer->start();
+    }
 }
 
 void Widget::OnStopScan()
 {
+    if(WORK_MODE_ENG_SPTRM_SCAN == current_work_mode())
+    {
+        update_ui_for_eng_sptrm_scan(false);
+    }
+
     // 停止自动停止定时器
     autoStopTimer->stop();
     
@@ -154,14 +225,18 @@ void Widget::OnStopScan()
 
 void Widget::OnSetFrameLineNum()
 {
-    // 停止自动停止定时器
-    autoStopTimer->stop();
+    if(WORK_MODE_TIMER_SCAN == current_work_mode())
+    {
+        // 停止自动停止定时器
+        autoStopTimer->stop();
+    }
 
     // 暂停图像接收
     l103Controller->blockSignals(true);
 
+    quint16 tmp_f_size = ui->lineEdit->text().toUShort();
     // 设置帧大小
-    if (!l103Controller->SetFrameSize(ui->lineEdit->text().toUShort()))
+    if (!l103Controller->SetFrameSize(tmp_f_size))
     {
         QMessageBox::critical(this, "设置失败", "设置帧大小发生错误, 错误代码为" + QString::number(static_cast<quint8>(l103Controller->GetLastError())));
         ui->lineEdit->setText(QString::number(frameSize));
@@ -190,8 +265,11 @@ void Widget::OnSetFrameLineNum()
     // 恢复图像接收
     l103Controller->blockSignals(false);
 
-    // 恢复自动停止定时器
-    autoStopTimer->start();
+    if(WORK_MODE_TIMER_SCAN == current_work_mode())
+    {
+        // 恢复自动停止定时器
+        autoStopTimer->start();
+    }
 }
 
 void Widget::OnSetThreshold1()
@@ -270,6 +348,34 @@ void Widget::OnFrameReady(quint16 *data)
 {
     quint16 pixelNumPerLine = cardNum * 64;
     quint32 elementsPerFrame = pixelNumPerLine * frameSize;
+
+    if(WORK_MODE_ENG_SPTRM_SCAN == current_work_mode())
+    {
+        if (!l103Controller->SetStopScanning())
+        {
+            QString err_str = QString("Stop scanning error at eng-level %1, err code: %2")
+                    .arg(m_eng_sptrm_scan_info.current).arg(static_cast<quint8>(l103Controller->GetLastError()));
+            DIY_LOG(LOG_ERROR, err_str);
+            QMessageBox::critical(this, "停止失败",  err_str);
+        }
+
+        QVector<acc_px_data_type> one_eng_sptrm_data(pixelNumPerLine, 0);
+        acc_px_data_type * tgt = one_eng_sptrm_data.data();
+
+        for (quint16 y = 0; y < frameSize; ++y)
+        {
+            for(quint16 p = 0; p < pixelNumPerLine; ++p)
+            {
+                tgt[p] += (*(data + y * pixelNumPerLine * g_sptrum_threshold_num + p));
+            }
+        }
+        m_eng_sptrm_raw_data.append(one_eng_sptrm_data);
+        inc_curr_eng_sptrm_scan_lvl();
+        emit scan_next_eng_sptrm_sig();
+
+        DIY_LOG(LOG_INFO, QString("%1 eng-level data recorded.").arg(m_eng_sptrm_scan_info.current));
+        return;
+    }
 
     // 追加到三个累积缓冲区
     int oldSize1 = accumulatedBuffer1.size();
@@ -484,3 +590,254 @@ void Widget::OnAutoStopTimeout()
         OnStartScan();
     }
 }
+
+Widget::work_mode_e_t Widget::current_work_mode()
+{
+    if(ui->manScanRBtn->isChecked()) return WORK_MODE_MAN_SCAN;
+    else if(ui->timerScanRBtn->isChecked()) return WORK_MODE_TIMER_SCAN;
+    else return WORK_MODE_ENG_SPTRM_SCAN;
+}
+
+bool Widget::check_eng_sptrm_range(int s, int e, int step, QString * ret_str)
+{
+    bool ret = true;
+    QString err_str;
+
+    if((s > e && step >= 0) || (s < e && step <= 0))
+    {
+        ret = false;
+        err_str = "起始能谱->结束能谱与步长方向不一致";
+    }
+    else if((s != e) && (0 == step))
+    {
+        ret = false;
+        err_str = "起始能谱与结束能谱不等时，步长不能为0";
+    }
+    if(ret_str) *ret_str = err_str;
+    return ret;
+}
+
+bool Widget::get_eng_sptrm_scan_info(QString *ret_str)
+{
+    bool ret = true;
+    QString err_str;
+    int vs, ve, vstep;
+
+    vs = ui->startEngSpinBox->value();
+    ve = ui->endEngSpinBox->value();
+    vstep = ui->stepEngSpinBox->value();
+
+    ret = check_eng_sptrm_range(vs, ve, vstep, &err_str);
+
+    if(ret)
+    {
+        m_eng_sptrm_scan_info.start = vs;
+        m_eng_sptrm_scan_info.end = ve;
+        m_eng_sptrm_scan_info.step = vstep;
+
+        m_eng_sptrm_scan_info.current = vs;
+    }
+
+    if(ret_str) *ret_str = err_str;
+
+    return ret;
+}
+
+void Widget::scan_next_eng_sptrm_hdlr()
+{
+    if(all_eng_sptrm_scanned())
+    {
+        emit eng_sptrm_scan_finished_sig();
+        return;
+    }
+
+    //this op costs long time so we just set 1 since we use 1 only.
+    for(quint8 th = 1; th <= 1 /*g_sptrum_threshold_num*/; ++th)
+    {
+        if (!l103Controller->SetThreshold(th, (quint16)(m_eng_sptrm_scan_info.current)))
+        {
+            QMessageBox::critical(this, "设置失败",
+                          QString("设置阈值%1发生错误, 错误代码为%2").arg(th).arg(QString::number(static_cast<quint8>(l103Controller->GetLastError()))));
+            return;
+        }
+    }
+
+    if (!l103Controller->SetStartScanning())
+    {
+        QMessageBox::critical(this, "启动失败", "启动扫描发生错误, 错误代码为" + QString::number(static_cast<quint8>(l103Controller->GetLastError())));
+        return;
+    }
+}
+
+void Widget::inc_curr_eng_sptrm_scan_lvl()
+{
+    if(m_eng_sptrm_scan_info.start == m_eng_sptrm_scan_info.end)
+    {
+        m_eng_sptrm_scan_info.current += ((0 == m_eng_sptrm_scan_info.step) ?
+                                              1 : m_eng_sptrm_scan_info.step);
+    }
+    else if(m_eng_sptrm_scan_info.current == m_eng_sptrm_scan_info.end)
+    {
+        m_eng_sptrm_scan_info.current += m_eng_sptrm_scan_info.step;
+    }
+    else
+    {
+        m_eng_sptrm_scan_info.current += m_eng_sptrm_scan_info.step;
+        if(((m_eng_sptrm_scan_info.step > 0)
+                && (m_eng_sptrm_scan_info.current > m_eng_sptrm_scan_info.end))
+            ||((m_eng_sptrm_scan_info.step < 0)
+                && (m_eng_sptrm_scan_info.current < m_eng_sptrm_scan_info.end)))
+        {
+            m_eng_sptrm_scan_info.current = m_eng_sptrm_scan_info.end;
+        }
+    }
+}
+
+bool Widget::all_eng_sptrm_scanned()
+{
+    bool finished = true;
+
+    if(m_eng_sptrm_scan_info.start == m_eng_sptrm_scan_info.end)
+    {
+        finished = (m_eng_sptrm_scan_info.current != m_eng_sptrm_scan_info.start);
+    }
+    else
+    {
+        finished = (((m_eng_sptrm_scan_info.step > 0)
+                        && (m_eng_sptrm_scan_info.current > m_eng_sptrm_scan_info.end))
+                || ((m_eng_sptrm_scan_info.step < 0)
+                        && (m_eng_sptrm_scan_info.current < m_eng_sptrm_scan_info.end)));
+    }
+
+    return finished;
+}
+
+void Widget::eng_sptrm_scan_finished_hdlr()
+{
+    update_ui_for_eng_sptrm_scan(false);
+
+    QString info_err_str;
+
+    if(m_eng_sptrm_raw_data.size() <= 0)
+    {
+        info_err_str = "No energy-sptrum data scanned.";
+        DIY_LOG(LOG_WARN, info_err_str);
+        QMessageBox::warning(this, "Warning", info_err_str);
+        return;
+    }
+
+    QString pth_str(g_data_save_folder);
+    if(!chk_mk_pth_and_warn(pth_str, this)) return;
+
+    QString eng_range_str = QString("%1-%2-%3").arg(m_eng_sptrm_scan_info.start)
+                                               .arg(m_eng_sptrm_scan_info.end)
+                                               .arg(m_eng_sptrm_scan_info.step);
+    QString data_file_name_str = QString("%1-%2-%3.%4").arg(g_eng_sptrm_scan_data_bfn,
+                              eng_range_str, common_tool_get_curr_dt_str(), g_eng_sptrm_scan_data_ext);
+    QString fpn = pth_str + "/" + data_file_name_str;
+    QFile data_file(fpn);
+    if(!data_file.open(QIODevice::WriteOnly))
+    {
+        info_err_str = QString("创建文件 %1 失败：%2").arg(fpn, data_file.errorString());
+        DIY_LOG(LOG_ERROR, info_err_str);
+        QMessageBox::critical(this, "Error", info_err_str);
+        return;
+    }
+    QTextStream t_stream(&data_file);
+    QString line_str;
+    //table head
+    line_str = QString("%1,%2").arg(g_str_sptrum_range, gen_eng_sptrm_range_str());
+    t_stream << line_str << "\n";
+
+    //data
+    if(m_eng_sptrm_raw_data.size() == 1)
+    {
+        for(int p = 0; p < m_eng_sptrm_raw_data[0].size(); ++p)
+        {
+            line_str = QString("%1-%2,%3").arg(g_str_pixel).arg(p).arg(m_eng_sptrm_raw_data[0][p]);
+            t_stream << line_str << "\n";
+        }
+    }
+    else
+    {
+        int range_cnt = m_eng_sptrm_raw_data.size() - 1;
+        for(int p = 0; p < m_eng_sptrm_raw_data[0].size(); ++p)
+        {
+            line_str = QString("%1-%2").arg(g_str_pixel).arg(p);
+            for(int r = 0; r < range_cnt - 1; ++r)
+            {
+                acc_px_data_type diff = (m_eng_sptrm_scan_info.step > 0) ?
+                                        (m_eng_sptrm_raw_data[r+1][p] - m_eng_sptrm_raw_data[r][p])
+                                      : (m_eng_sptrm_raw_data[r][p] - m_eng_sptrm_raw_data[r+1][p]);
+                line_str += QString(",%1").arg(diff);
+            }
+            t_stream << line_str << "\n";
+        }
+    }
+
+    data_file.close();
+
+    QMessageBox::information(this, "OK", "能谱扫描已完成");
+}
+
+QString Widget::gen_eng_sptrm_range_str(QString s_e_sep, QString r_sep)
+{
+    if(!check_eng_sptrm_range(m_eng_sptrm_scan_info.start, m_eng_sptrm_scan_info.end,
+                              m_eng_sptrm_scan_info.step))
+    {
+        return "";
+    }
+
+    if(m_eng_sptrm_scan_info.start == m_eng_sptrm_scan_info.end)
+    {
+        return QString("%1").arg(m_eng_sptrm_scan_info.start);
+    }
+
+    bool inc = (m_eng_sptrm_scan_info.step > 0);
+    QString line_str;
+    int s = m_eng_sptrm_scan_info.start, e;
+    while((inc && (s < m_eng_sptrm_scan_info.end)) || (!inc && (s > m_eng_sptrm_scan_info.end)))
+    {
+        e = s + m_eng_sptrm_scan_info.step;
+        if((inc && (e > m_eng_sptrm_scan_info.end)) || (!inc && (e < m_eng_sptrm_scan_info.end)))
+        {
+            e = m_eng_sptrm_scan_info.end;
+        }
+
+        line_str += QString("%1%2%3%4").arg(s).arg(s_e_sep).arg(e).arg(r_sep);
+
+        s += m_eng_sptrm_scan_info.step;
+    }
+    line_str.chop(r_sep.length()); //remove the lase extra r_sep.
+    return line_str;
+}
+
+int Widget::get_eng_sptrm_range_cnt()
+{
+    return 0;
+}
+
+void Widget::update_ui_according_to_work_mode()
+{
+    work_mode_e_t curr_mode = current_work_mode();
+
+    ui->tableWidget->setVisible(curr_mode != WORK_MODE_ENG_SPTRM_SCAN);
+    ui->groupBox->setVisible(curr_mode != WORK_MODE_ENG_SPTRM_SCAN);
+
+    ui->engSptrmScanSetGpBox->setVisible(curr_mode == WORK_MODE_ENG_SPTRM_SCAN);
+}
+
+void Widget::update_ui_for_eng_sptrm_scan(bool scan_start)
+{
+    ui->pushButton->setEnabled(!scan_start);
+    ui->pushButton_4->setEnabled(!scan_start);
+    ui->lineEdit->setEnabled(!scan_start);
+
+    ui->pushButton_2->setEnabled(scan_start); //stop scan;
+}
+
+void Widget::on_engSptrmScanRBtn_toggled(bool /*checked*/)
+{
+     update_ui_according_to_work_mode();
+}
+

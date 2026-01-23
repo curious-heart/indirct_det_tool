@@ -19,9 +19,20 @@ win32 {
 
 # 头文件配置
 HEADERS += \
+           common_tools/common_macros.h \
+           common_tools/common_tool_func.h \
+           config_recorder/uiconfigrecorder.h \
+           literal_strings/literal_strings.h \
+           logger/logger.h \
+           version_def/version_def.h \
            widget.h
 # 源文件配置
 SOURCES += main.cpp \
+           common_tools/common_tool_func.cpp \
+           config_recorder/uiconfigrecorder.cpp \
+           literal_strings/literal_strings.cpp \
+           logger/logger.cpp \
+           version_def/version_def.cpp \
            widget.cpp
 # UI 文件配置
 FORMS += \
@@ -30,6 +41,6 @@ FORMS += \
 RESOURCES +=
 
 # 包含路径配置
-INCLUDEPATH += $$PWD
+#INCLUDEPATH += $$PWD
 # 链接库配置
 LIBS += -L$$PWD -lL103Controller
