@@ -32,8 +32,7 @@ public:
 
     typedef enum
     {
-        WORK_MODE_MAN_SCAN,
-        WORK_MODE_TIMER_SCAN,
+        WORK_MODE_MAN_TIMER_SCAN,
         WORK_MODE_ENG_SPTRM_SCAN,
     }work_mode_e_t;
 
@@ -70,6 +69,8 @@ private slots:
     void eng_sptrm_scan_finished_hdlr();
 
     void on_engSptrmScanRBtn_toggled(bool checked);
+    bool prepare_eng_sptrm_scan();
+    void update_th_list_display(quint8 th_idx);
 
 private:
     // 初始化
@@ -96,6 +97,7 @@ private:
 
     UiConfigRecorder m_ui_cfg_rec;
     qobj_ptr_set_t m_ui_cfg_rec_filter_in, m_ui_cfg_rec_filter_out;
+    bool m_init_ok = false, m_preparing = false;
 
     L103Controller *l103Controller;      // 探测器库对象
     quint16 frameSize;                   // 帧大小

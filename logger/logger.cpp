@@ -80,7 +80,7 @@ void writeLog(int level, QString loc_str, QString msg)
     file.flush();
     file.close();
 
-    qDebug() << str1 << str2;
+    //qDebug() << str1 << str2;
 }
 //void Logger::receive_log(LOG_LEVEL level, QString loc_str, QString log_str)
 #undef LOG_LEVEL_ITEM

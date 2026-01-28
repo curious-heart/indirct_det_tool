@@ -124,7 +124,7 @@
     </layout>
    </item>
    <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_2">
+    <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="1,5,2,2">
      <item>
       <layout class="QVBoxLayout" name="verticalLayout_7">
        <item>
@@ -295,32 +295,6 @@
         <bool>false</bool>
        </property>
        <layout class="QGridLayout" name="gridLayout">
-        <item row="0" column="0">
-         <widget class="QLineEdit" name="lineEdit_2">
-          <property name="minimumSize">
-           <size>
-            <width>45</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="text">
-           <string/>
-          </property>
-         </widget>
-        </item>
-        <item row="0" column="1">
-         <widget class="QPushButton" name="pushButton_3">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="text">
-           <string>设置</string>
-          </property>
-         </widget>
-        </item>
         <item row="1" column="0">
          <widget class="QLineEdit" name="lineEdit_4">
           <property name="minimumSize">
@@ -347,8 +321,21 @@
           </property>
          </widget>
         </item>
-        <item row="2" column="0">
-         <widget class="QLineEdit" name="lineEdit_5">
+        <item row="2" column="1">
+         <widget class="QPushButton" name="pushButton_7">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="text">
+           <string>设置</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="0">
+         <widget class="QLineEdit" name="lineEdit_2">
           <property name="minimumSize">
            <size>
             <width>45</width>
@@ -360,8 +347,8 @@
           </property>
          </widget>
         </item>
-        <item row="2" column="1">
-         <widget class="QPushButton" name="pushButton_7">
+        <item row="0" column="1">
+         <widget class="QPushButton" name="pushButton_3">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
             <horstretch>0</horstretch>
@@ -370,6 +357,19 @@
           </property>
           <property name="text">
            <string>设置</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLineEdit" name="lineEdit_5">
+          <property name="minimumSize">
+           <size>
+            <width>45</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string/>
           </property>
          </widget>
         </item>
@@ -508,16 +508,9 @@
        <number>4</number>
       </property>
       <item>
-       <widget class="QRadioButton" name="manScanRBtn">
+       <widget class="QRadioButton" name="manTimerScanRBtn">
         <property name="text">
-         <string>手动扫描</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QRadioButton" name="timerScanRBtn">
-        <property name="text">
-         <string>定时扫描</string>
+         <string>手动/定时扫描</string>
         </property>
        </widget>
       </item>
@@ -529,6 +522,13 @@
        </widget>
       </item>
      </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="scanStatusLbl">
+     <property name="text">
+      <string/>
+     </property>
     </widget>
    </item>
   </layout>
