@@ -26,9 +26,6 @@ static const char* g_data_save_folder = "./scan_result";
 static const char* g_eng_sptrm_scan_data_bfn = "eng_sptrum_data";
 static const char* g_eng_sptrm_scan_data_ext = ".csv";
 
-static const char* g_eng_sptrm_scan_data_raw_bfn = "eng_sptrum_raw";
-static const char* g_eng_sptrm_scan_data_raw_ext = ".raw";
-
 Widget::Widget(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::Widget)
@@ -180,6 +177,7 @@ void Widget::OnStartScan()
             DIY_LOG(LOG_ERROR, err_str);
             QMessageBox::critical(this, "Error", err_str);
             m_preparing = false;
+            ui->scanStatusLbl->setText("");
             return;
         }
         m_preparing = false;
@@ -397,6 +395,7 @@ void Widget::OnFrameReady(quint16 *data)
                              + p));
             }
         }
+
         m_eng_sptrm_raw_data.append(one_eng_sptrm_data);
         err_str = QString("%1 eng-level data recorded.").arg(m_eng_sptrm_scan_info.current);
         DIY_LOG(LOG_INFO, err_str);
@@ -529,7 +528,7 @@ void Widget::OnSaveImage()
     }
     
     // 创建保存目录
-    QDir dir("D:/scanResult");
+    QDir dir(g_data_save_folder);
     if (!dir.exists())
     {
         if (!dir.mkpath("."))
@@ -550,9 +549,9 @@ void Widget::OnSaveImage()
         .arg(now.time().second(), 2, 10, QChar('0'));
     
     // 保存累积缓冲区为单个raw文件
-    QString fileName1 = QString("D:/scanResult/%1_1.raw").arg(timestamp);
-    QString fileName2 = QString("D:/scanResult/%1_2.raw").arg(timestamp);
-    QString fileName3 = QString("D:/scanResult/%1_3.raw").arg(timestamp);
+    QString fileName1 = QString("%1/%2_1.raw").arg(g_data_save_folder).arg(timestamp);
+    QString fileName2 = QString("%1/%2_2.raw").arg(g_data_save_folder).arg(timestamp);
+    QString fileName3 = QString("%1/%2_3.raw").arg(g_data_save_folder).arg(timestamp);
 
     QFile file1(fileName1);
     QFile file2(fileName2);
@@ -585,7 +584,10 @@ void Widget::OnSaveImage()
     file3.write(reinterpret_cast<const char*>(accumulatedBuffer3.data()), accumulatedBuffer3.size() * sizeof(quint16));
     file3.close();
     
-    QMessageBox::information(this, "保存成功", QString("累积扫描图像已保存到:\n   D:/scanResult\n大小: %1 MB").arg(accumulatedBuffer1.size() * sizeof(quint16) / 1024.0 / 1024.0, 0, 'f', 2));
+    QMessageBox::information(this, "保存成功",
+                             QString("累积扫描图像已保存到:\n   %1\n大小: %2 MB")
+                             .arg(g_data_save_folder)
+                             .arg(accumulatedBuffer1.size() * sizeof(quint16) / 1024.0 / 1024.0, 0, 'f', 2));
 }
 
 void Widget::OnAutoStopTimeout()
@@ -899,6 +901,8 @@ void Widget::update_ui_for_eng_sptrm_scan(bool scan_start)
 
     ui->manTimerScanRBtn->setEnabled(!scan_start);
     ui->engSptrmScanRBtn->setEnabled(!scan_start);
+
+    ui->pushButton_5->setEnabled(!scan_start);
 }
 
 void Widget::on_engSptrmScanRBtn_toggled(bool /*checked*/)
