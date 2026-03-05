@@ -176,7 +176,7 @@
                 </font>
                </property>
                <property name="text">
-                <string>设置帧大小</string>
+                <string>设置帧数量</string>
                </property>
               </widget>
              </item>
@@ -508,6 +508,13 @@
        <number>4</number>
       </property>
       <item>
+       <widget class="QRadioButton" name="engSptrmScanRBtn">
+        <property name="text">
+         <string>扫描能谱</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QRadioButton" name="manTimerScanRBtn">
         <property name="text">
          <string>手动/定时扫描</string>
@@ -515,9 +522,46 @@
        </widget>
       </item>
       <item>
-       <widget class="QRadioButton" name="engSptrmScanRBtn">
+       <spacer name="horizontalSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="infiniteScanRBtn">
         <property name="text">
-         <string>扫描能谱</string>
+         <string>无限扫描</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="linesToSaveLbl">
+        <property name="text">
+         <string>保存频率</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="linesToSaveSpinBox">
+        <property name="minimum">
+         <number>10</number>
+        </property>
+        <property name="maximum">
+         <number>2000</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="linesToSaveLbl_2">
+        <property name="text">
+         <string>每（保存频率*帧数量）保存一次</string>
         </property>
        </widget>
       </item>

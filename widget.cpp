@@ -17,7 +17,7 @@
 #include "logger/logger.h"
 
 const quint8 g_sptrum_threshold_num = 3;
-const int g_channel_per_card = 64;
+const int g_px_per_eng_per_card = 64;
 
 static const int g_min_eng_sptrm_val = 0;
 static const int g_max_eng_sptrm_val = 1000;
@@ -25,6 +25,8 @@ static const int g_max_eng_sptrm_val = 1000;
 static const char* g_data_save_folder = "./scan_result";
 static const char* g_eng_sptrm_scan_data_bfn = "eng_sptrum_data";
 static const char* g_eng_sptrm_scan_data_ext = ".csv";
+
+static const char* g_infi_save_folder_name = "infinite_scan";
 
 Widget::Widget(QWidget *parent) :
     QWidget(parent),
@@ -36,6 +38,7 @@ Widget::Widget(QWidget *parent) :
     QButtonGroup *work_mode_btn_grp = new QButtonGroup(this);
     work_mode_btn_grp->addButton(ui->manTimerScanRBtn);
     work_mode_btn_grp->addButton(ui->engSptrmScanRBtn);
+    work_mode_btn_grp->addButton(ui->infiniteScanRBtn);
 
     ui->engSptrmScanRBtn->setChecked(true);
     ui->startEngSpinBox->setMinimum(g_min_eng_sptrm_val);
@@ -50,6 +53,10 @@ Widget::Widget(QWidget *parent) :
     this->InitMember();
     this->InitUI();
     this->InitConnect();
+
+    m_infi_save_freq = ui->linesToSaveSpinBox->value();
+
+    m_infi_save_pth_s = QString(g_data_save_folder) + "/" + g_infi_save_folder_name;
 
     m_init_ok = true;
 }
@@ -155,10 +162,40 @@ void Widget::InitConnect()
             this, &Widget::scan_next_eng_sptrm_hdlr, Qt::QueuedConnection);
     connect(this, &Widget::eng_sptrm_scan_finished_sig,
             this, &Widget::eng_sptrm_scan_finished_hdlr, Qt::QueuedConnection);
+    connect(this, &Widget::save_img_in_infinite_scan_sig,
+            this, &Widget::save_img_in_infinite_scan_hdlr, Qt::QueuedConnection);
+    connect(this, &Widget::stop_infi_scan_sig,
+            this, &Widget::stop_infi_scan_hdlr, Qt::QueuedConnection);
 }
 
 void Widget::OnStartScan()
 {
+    QString save_root_pth_s = QString(g_data_save_folder);
+    if(!chk_mk_pth_and_warn(save_root_pth_s, this)) return;
+
+    if(WORK_MODE_INIFINITE_SCAN == current_work_mode())
+    {
+        if(!chk_mk_pth_and_warn(m_infi_save_pth_s, this))
+        {
+            m_infi_scan_stop_reason = INFI_SCAN_STOP_DUE_TO_ROOT_FOLDER_ERR;
+
+            DIY_LOG(LOG_ERROR, QString("Start infinite scan error, stop reason: %1")
+                                .arg(m_infi_scan_stop_reason));
+            return;
+        }
+
+        m_infi_scan_save_idx = 0;
+        m_new_infi_scan_round = true;
+        m_infi_scan_stop_reason = INFI_SCAN_STOP_BY_USER;
+
+        m_one_eng_px_num_in_buf = (g_px_per_eng_per_card * cardNum) //px per line/frame per eng
+                                * (m_infi_save_freq * frameSize) //peroid
+                                 ;
+        m_infi_scan_buf.resize(m_one_eng_px_num_in_buf
+                               * g_sptrum_threshold_num //eng num
+                               );
+    }
+
     if(WORK_MODE_ENG_SPTRM_SCAN == current_work_mode())
     {
         QString err_str;
@@ -196,7 +233,9 @@ void Widget::OnStartScan()
         if (!l103Controller->SetStartScanning())
         {
             QMessageBox::critical(this, "启动失败", "启动扫描发生错误, 错误代码为" + QString::number(static_cast<quint8>(l103Controller->GetLastError())));
+            return;
         }
+        DIY_LOG(LOG_INFO, QString("Start scanning, work mode: %1").arg(current_work_mode()));
     }
     
     update_ui_for_eng_sptrm_scan(true);
@@ -229,7 +268,7 @@ void Widget::OnStopScan()
     else
     {
         // 停止自动停止定时器
-        autoStopTimer->stop();
+        if(WORK_MODE_MAN_TIMER_SCAN == current_work_mode()) autoStopTimer->stop();
 
         if (!l103Controller->SetStopScanning())
         {
@@ -366,6 +405,8 @@ void Widget::OnFrameReady(quint16 *data)
     quint16 pixelNumPerLine = cardNum * 64;
     quint32 elementsPerFrame = pixelNumPerLine * frameSize;
 
+    quint16 *dst1, *dst2, *dst3;
+
     if(WORK_MODE_ENG_SPTRM_SCAN == current_work_mode())
     {
         QString err_str ;
@@ -407,25 +448,47 @@ void Widget::OnFrameReady(quint16 *data)
         //return;
     }
 
-    // 追加到三个累积缓冲区
-    int oldSize1 = accumulatedBuffer1.size();
-    int oldSize2 = accumulatedBuffer2.size();
-    int oldSize3 = accumulatedBuffer3.size();
-
-    accumulatedBuffer1.resize(oldSize1 + elementsPerFrame);
-    accumulatedBuffer2.resize(oldSize2 + elementsPerFrame);
-    accumulatedBuffer3.resize(oldSize3 + elementsPerFrame);
-
-    quint16 *dst1 = accumulatedBuffer1.data() + oldSize1;
-    quint16 *dst2 = accumulatedBuffer2.data() + oldSize2;
-    quint16 *dst3 = accumulatedBuffer3.data() + oldSize3;
-
-    // 拷贝数据到累积缓冲区
-    for (quint16 y = 0; y < frameSize; ++y)
+    if(WORK_MODE_INIFINITE_SCAN == current_work_mode())
     {
-        memcpy(dst1 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3, pixelNumPerLine * sizeof(quint16));
-        memcpy(dst2 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3 + pixelNumPerLine, pixelNumPerLine * sizeof(quint16));
-        memcpy(dst3 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3 + pixelNumPerLine * 2, pixelNumPerLine * sizeof(quint16));
+        dst1 = m_infi_scan_buf.data() + m_infi_scan_save_idx * elementsPerFrame;
+        dst2 = dst1 + m_one_eng_px_num_in_buf;
+        dst3 = dst1 + m_one_eng_px_num_in_buf * 2;
+        for (quint16 y = 0; y < frameSize; ++y)
+        {
+            memcpy(dst1 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3, pixelNumPerLine * sizeof(quint16));
+            memcpy(dst2 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3 + pixelNumPerLine, pixelNumPerLine * sizeof(quint16));
+            memcpy(dst3 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3 + pixelNumPerLine * 2, pixelNumPerLine * sizeof(quint16));
+        }
+
+        ++m_infi_scan_save_idx;
+        if(m_infi_scan_save_idx == m_infi_save_freq)
+        {
+            emit save_img_in_infinite_scan_sig();
+            m_infi_scan_save_idx = 0;
+        }
+    }
+    else //WORK_MODE_MAN_TIMER_SCAN || WORK_MODE_ENG_SPTRM_SCAN
+    {
+        // 追加到三个累积缓冲区
+        int oldSize1 = accumulatedBuffer1.size();
+        int oldSize2 = accumulatedBuffer2.size();
+        int oldSize3 = accumulatedBuffer3.size();
+
+        accumulatedBuffer1.resize(oldSize1 + elementsPerFrame);
+        accumulatedBuffer2.resize(oldSize2 + elementsPerFrame);
+        accumulatedBuffer3.resize(oldSize3 + elementsPerFrame);
+
+        dst1 = accumulatedBuffer1.data() + oldSize1;
+        dst2 = accumulatedBuffer2.data() + oldSize2;
+        dst3 = accumulatedBuffer3.data() + oldSize3;
+
+        // 拷贝数据到累积缓冲区
+        for (quint16 y = 0; y < frameSize; ++y)
+        {
+            memcpy(dst1 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3, pixelNumPerLine * sizeof(quint16));
+            memcpy(dst2 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3 + pixelNumPerLine, pixelNumPerLine * sizeof(quint16));
+            memcpy(dst3 + y * pixelNumPerLine, data + y * pixelNumPerLine * 3 + pixelNumPerLine * 2, pixelNumPerLine * sizeof(quint16));
+        }
     }
 
     // 创建单帧图像
@@ -440,9 +503,9 @@ void Widget::OnFrameReady(quint16 *data)
         quint16* line2 = reinterpret_cast<quint16*>(image2.scanLine(y));
         quint16* line3 = reinterpret_cast<quint16*>(image3.scanLine(y));
 
-        memcpy(line1, dst1 + y * pixelNumPerLine, pixelNumPerLine * sizeof(quint16));
-        memcpy(line2, dst2 + y * pixelNumPerLine, pixelNumPerLine * sizeof(quint16));
-        memcpy(line3, dst3 + y * pixelNumPerLine, pixelNumPerLine * sizeof(quint16));
+        memcpy(line1, data + y * pixelNumPerLine * 3, pixelNumPerLine * sizeof(quint16));
+        memcpy(line2, data + y * pixelNumPerLine * 3 + pixelNumPerLine, pixelNumPerLine * sizeof(quint16));
+        memcpy(line3, data + y * pixelNumPerLine * 3 + pixelNumPerLine * 2, pixelNumPerLine * sizeof(quint16));
     }
     
     // 将图像加入历史缓冲区
@@ -457,6 +520,7 @@ void Widget::OnFrameReady(quint16 *data)
     
     // 将图像历史缓冲区显示到图像上
     DisplayImage();
+
 }
 
 void Widget::DisplayImage()
@@ -527,67 +591,7 @@ void Widget::OnSaveImage()
         return;
     }
     
-    // 创建保存目录
-    QDir dir(g_data_save_folder);
-    if (!dir.exists())
-    {
-        if (!dir.mkpath("."))
-        {
-            QMessageBox::critical(this, "保存失败", "无法创建保存目录");
-            return;
-        }
-    }
-    
-    // 生成文件名时间戳
-    QDateTime now = QDateTime::currentDateTime();
-    QString timestamp = QString("%1年%2月%3日_%4：%5：%6")
-        .arg(now.date().year())
-        .arg(now.date().month())
-        .arg(now.date().day())
-        .arg(now.time().hour(), 2, 10, QChar('0'))
-        .arg(now.time().minute(), 2, 10, QChar('0'))
-        .arg(now.time().second(), 2, 10, QChar('0'));
-    
-    // 保存累积缓冲区为单个raw文件
-    QString fileName1 = QString("%1/%2_1.raw").arg(g_data_save_folder).arg(timestamp);
-    QString fileName2 = QString("%1/%2_2.raw").arg(g_data_save_folder).arg(timestamp);
-    QString fileName3 = QString("%1/%2_3.raw").arg(g_data_save_folder).arg(timestamp);
-
-    QFile file1(fileName1);
-    QFile file2(fileName2);
-    QFile file3(fileName3);
-
-    // 保存缓冲区1
-    if (!file1.open(QIODevice::WriteOnly))
-    {
-        QMessageBox::critical(this, "保存失败", QString("无法创建文件: %1").arg(fileName1));
-        return;
-    }
-    file1.write(reinterpret_cast<const char*>(accumulatedBuffer1.data()), accumulatedBuffer1.size() * sizeof(quint16));
-    file1.close();
-
-    // 保存缓冲区2
-    if (!file2.open(QIODevice::WriteOnly))
-    {
-        QMessageBox::critical(this, "保存失败", QString("无法创建文件: %1").arg(fileName2));
-        return;
-    }
-    file2.write(reinterpret_cast<const char*>(accumulatedBuffer2.data()), accumulatedBuffer2.size() * sizeof(quint16));
-    file2.close();
-
-    // 保存缓冲区3
-    if (!file3.open(QIODevice::WriteOnly))
-    {
-        QMessageBox::critical(this, "保存失败", QString("无法创建文件: %1").arg(fileName3));
-        return;
-    }
-    file3.write(reinterpret_cast<const char*>(accumulatedBuffer3.data()), accumulatedBuffer3.size() * sizeof(quint16));
-    file3.close();
-    
-    QMessageBox::information(this, "保存成功",
-                             QString("累积扫描图像已保存到:\n   %1\n大小: %2 MB")
-                             .arg(g_data_save_folder)
-                             .arg(accumulatedBuffer1.size() * sizeof(quint16) / 1024.0 / 1024.0, 0, 'f', 2));
+    save_img_data_to_file(FILE_SAVE_MODE_DEFAULT);
 }
 
 void Widget::OnAutoStopTimeout()
@@ -631,6 +635,7 @@ void Widget::OnAutoStopTimeout()
 Widget::work_mode_e_t Widget::current_work_mode()
 {
     if(ui->manTimerScanRBtn->isChecked()) return WORK_MODE_MAN_TIMER_SCAN;
+    else if(ui->infiniteScanRBtn->isChecked()) return WORK_MODE_INIFINITE_SCAN;
     else return WORK_MODE_ENG_SPTRM_SCAN;
 }
 
@@ -889,6 +894,12 @@ void Widget::update_ui_according_to_work_mode()
     }
     ui->tableWidget->setVisible(curr_mode != WORK_MODE_ENG_SPTRM_SCAN);
     ui->scanStatusLbl->setVisible(curr_mode == WORK_MODE_ENG_SPTRM_SCAN);
+
+    ui->linesToSaveLbl->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+    ui->linesToSaveLbl_2->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+    ui->linesToSaveSpinBox->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+
+    ui->pushButton_5->setEnabled(curr_mode != WORK_MODE_INIFINITE_SCAN); //save image
 }
 
 void Widget::update_ui_for_eng_sptrm_scan(bool scan_start)
@@ -937,3 +948,161 @@ bool Widget::prepare_eng_sptrm_scan()
     }
     return ret;
 }
+
+void Widget::save_img_data_to_file(file_save_mode_e_t save_mode)
+{
+    if(FILE_SAVE_MODE_DEFAULT == save_mode)
+    {
+        // 创建保存目录
+        QDir dir(g_data_save_folder);
+        if (!dir.exists())
+        {
+            if (!dir.mkpath("."))
+            {
+                QMessageBox::critical(this, "保存失败", "无法创建保存目录");
+                return;
+            }
+        }
+
+        // 生成文件名时间戳
+        QDateTime now = QDateTime::currentDateTime();
+        QString timestamp = QString("%1年%2月%3日_%4：%5：%6")
+            .arg(now.date().year())
+            .arg(now.date().month())
+            .arg(now.date().day())
+            .arg(now.time().hour(), 2, 10, QChar('0'))
+            .arg(now.time().minute(), 2, 10, QChar('0'))
+            .arg(now.time().second(), 2, 10, QChar('0'));
+
+        // 保存累积缓冲区为单个raw文件
+        QString fileName1 = QString("%1/%2_1.raw").arg(g_data_save_folder).arg(timestamp);
+        QString fileName2 = QString("%1/%2_2.raw").arg(g_data_save_folder).arg(timestamp);
+        QString fileName3 = QString("%1/%2_3.raw").arg(g_data_save_folder).arg(timestamp);
+
+        QFile file1(fileName1);
+        QFile file2(fileName2);
+        QFile file3(fileName3);
+
+        // 保存缓冲区1
+        if (!file1.open(QIODevice::WriteOnly))
+        {
+            QMessageBox::critical(this, "保存失败", QString("无法创建文件: %1").arg(fileName1));
+            return;
+        }
+        file1.write(reinterpret_cast<const char*>(accumulatedBuffer1.data()), accumulatedBuffer1.size() * sizeof(quint16));
+        file1.close();
+
+        // 保存缓冲区2
+        if (!file2.open(QIODevice::WriteOnly))
+        {
+            QMessageBox::critical(this, "保存失败", QString("无法创建文件: %1").arg(fileName2));
+            return;
+        }
+        file2.write(reinterpret_cast<const char*>(accumulatedBuffer2.data()), accumulatedBuffer2.size() * sizeof(quint16));
+        file2.close();
+
+        // 保存缓冲区3
+        if (!file3.open(QIODevice::WriteOnly))
+        {
+            QMessageBox::critical(this, "保存失败", QString("无法创建文件: %1").arg(fileName3));
+            return;
+        }
+        file3.write(reinterpret_cast<const char*>(accumulatedBuffer3.data()), accumulatedBuffer3.size() * sizeof(quint16));
+        file3.close();
+
+        QMessageBox::information(this, "保存成功",
+                                 QString("累积扫描图像已保存到:\n   %1\n大小: %2 MB")
+                                 .arg(g_data_save_folder)
+                                 .arg(accumulatedBuffer1.size() * sizeof(quint16) / 1024.0 / 1024.0, 0, 'f', 2));
+    }
+    else
+    {//FILT_SAVE_MODE_INFINITE
+        static QString curr_sub_folder_s;
+
+        quint64 start_save = m_global_timer.nsecsElapsed();
+
+        QString err_str;
+
+        if(m_new_infi_scan_round)
+        {
+            QString dt_str = common_tool_get_curr_dt_str();
+            curr_sub_folder_s = m_infi_save_pth_s + "/" + dt_str;
+            if(!chk_mk_pth_and_warn(curr_sub_folder_s, this, false))
+            {
+                m_infi_scan_stop_reason = INFI_SCAN_STOP_DUE_TO_SUB_FOLDER_ERR;
+                emit stop_infi_scan_sig();
+                return;
+            }
+
+            m_new_infi_scan_round = false;
+        }
+        QString img_fn_pre_part = curr_sub_folder_s + "/" +
+                QString::number(m_global_timer.nsecsElapsed()) + "-";
+
+        quint16 * data_src = m_infi_scan_buf.data();
+        for(quint8 i = 0; i < g_sptrum_threshold_num; ++i)
+        {
+            QString fpn = img_fn_pre_part + QString::number(i + 1);
+            QFile img_f(fpn);
+            if(!img_f.open(QIODevice::WriteOnly))
+            {
+                m_infi_scan_stop_reason = INFI_SCAN_STOP_DUE_TO_FILE_ERR;
+
+                err_str = QString("创建文件 %1 失败: %2").arg(fpn, img_f.errorString());
+                DIY_LOG(LOG_ERROR, err_str);
+                emit stop_infi_scan_sig();
+                return;
+            }
+            img_f.write(reinterpret_cast<const char*>(data_src),
+                        m_one_eng_px_num_in_buf * sizeof(quint16));
+            if(img_f.error() != QFileDevice::NoError)
+            {
+                err_str = QString(" 文件 %1 失败: %2").arg(fpn, img_f.errorString());
+                DIY_LOG(LOG_ERROR, err_str);
+                img_f.close();
+                emit stop_infi_scan_sig();
+
+                return;
+            }
+            img_f.close();
+            data_src += m_one_eng_px_num_in_buf;
+        }
+
+        quint64 end_save = m_global_timer.nsecsElapsed();
+        DIY_LOG(LOG_INFO, QString("save use time: %1").arg(QString::number(end_save - start_save)));
+    }
+}
+
+void Widget::on_linesToSaveSpinBox_valueChanged(int arg1)
+{
+    m_infi_save_freq = arg1;
+}
+
+
+void Widget::save_img_in_infinite_scan_hdlr()
+{
+    save_img_data_to_file(FILT_SAVE_MODE_INFINITE);
+}
+
+void Widget::stop_infi_scan_hdlr()
+{
+    OnStopScan();
+
+    if(m_infi_scan_stop_reason != INFI_SCAN_STOP_BY_USER)
+    {
+        QString info_str = QString("停止扫描。原因：%1").arg(m_infi_scan_stop_reason);
+        QMessageBox::critical(this, "", info_str);
+    }
+}
+
+void Widget::on_manTimerScanRBtn_toggled(bool /*checked*/)
+{
+     update_ui_according_to_work_mode();
+}
+
+
+void Widget::on_infiniteScanRBtn_toggled(bool /*checked*/)
+{
+     update_ui_according_to_work_mode();
+}
+

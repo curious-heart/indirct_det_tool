@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QTimer>
 #include <QVector>
+#include <QElapsedTimer>
 
 #include "config_recorder/uiconfigrecorder.h"
 
@@ -34,7 +35,22 @@ public:
     {
         WORK_MODE_MAN_TIMER_SCAN,
         WORK_MODE_ENG_SPTRM_SCAN,
+        WORK_MODE_INIFINITE_SCAN
     }work_mode_e_t;
+
+    typedef enum
+    {
+        FILE_SAVE_MODE_DEFAULT,
+        FILT_SAVE_MODE_INFINITE,
+    }file_save_mode_e_t;
+
+    typedef enum
+    {
+        INFI_SCAN_STOP_BY_USER,
+        INFI_SCAN_STOP_DUE_TO_ROOT_FOLDER_ERR,
+        INFI_SCAN_STOP_DUE_TO_SUB_FOLDER_ERR,
+        INFI_SCAN_STOP_DUE_TO_FILE_ERR,
+    }infi_scan_stop_reason_e_t;
 
     typedef struct
     {
@@ -45,6 +61,8 @@ public:
 signals:
     void scan_next_eng_sptrm_sig();
     void eng_sptrm_scan_finished_sig();
+    void save_img_in_infinite_scan_sig();
+    void stop_infi_scan_sig();
 
 private slots:
     // 按钮槽函数
@@ -71,6 +89,17 @@ private slots:
     void on_engSptrmScanRBtn_toggled(bool checked);
     bool prepare_eng_sptrm_scan();
     void update_th_list_display(quint8 th_idx);
+
+    void save_img_data_to_file(file_save_mode_e_t save_mode);
+
+    void on_linesToSaveSpinBox_valueChanged(int arg1);
+
+    void save_img_in_infinite_scan_hdlr();
+    void stop_infi_scan_hdlr();
+
+    void on_manTimerScanRBtn_toggled(bool checked);
+
+    void on_infiniteScanRBtn_toggled(bool checked);
 
 private:
     // 初始化
@@ -117,6 +146,15 @@ private:
 
     eng_sptrm_scan_s_t m_eng_sptrm_scan_info;
     QVector<QVector<acc_px_data_type>> m_eng_sptrm_raw_data;
+
+    int m_infi_save_freq, m_infi_scan_save_idx = 0;
+    bool m_new_infi_scan_round = true;
+    QString m_infi_save_pth_s;
+    infi_scan_stop_reason_e_t m_infi_scan_stop_reason = INFI_SCAN_STOP_BY_USER;
+
+    QVector<quint16> m_infi_scan_buf;
+    quint64 m_one_eng_px_num_in_buf;
+    QElapsedTimer m_global_timer;
 };
 
 #endif
