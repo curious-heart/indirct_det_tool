@@ -16,6 +16,8 @@
 #include "common_tools/common_tool_func.h"
 #include "logger/logger.h"
 
+#define DBG_GUI 0
+
 const quint8 g_sptrum_threshold_num = 3;
 const int g_px_per_eng_per_card = 64;
 
@@ -82,7 +84,7 @@ void Widget::InitMember()
     
     // 创建探测器库对象
     l103Controller = new L103Controller(frameSize, 5000);
-
+#if !DBG_GUI
     // 初始化探测器库
     if (!l103Controller->Init())
     {
@@ -96,6 +98,7 @@ void Widget::InitMember()
         QMessageBox::critical(this, "初始化失败", "读取板卡数发生错误, 错误代码为" + QString::number(static_cast<quint8>(l103Controller->GetLastError())));
         std::exit(-1);
     }
+#endif
 
     // 初始化单次展示帧数
     double width = cardNum * 64.0 * 611 / 131;
@@ -915,6 +918,8 @@ void Widget::update_ui_according_to_work_mode()
     ui->saveInGapDbSpinBox->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
     ui->saveInGapMinLbl->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
     ui->saveAllChkBox->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+    ui->line_2->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+    ui->line_3->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
 
     ui->saveInGapDbSpinBox->setEnabled(!ui->saveAllChkBox->isChecked());
 
