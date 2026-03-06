@@ -58,6 +58,9 @@ Widget::Widget(QWidget *parent) :
 
     m_infi_save_pth_s = QString(g_data_save_folder) + "/" + g_infi_save_folder_name;
 
+    m_last_save_point_ms = 0;
+    m_save_all_in_infi_mode = ui->saveAllChkBox->isChecked();
+
     m_init_ok = true;
 }
 
@@ -236,6 +239,10 @@ void Widget::OnStartScan()
             return;
         }
         DIY_LOG(LOG_INFO, QString("Start scanning, work mode: %1").arg(current_work_mode()));
+
+         m_last_save_point_ms = 0;
+         m_save_gap_ms = (qint64)(60 * ui->saveInGapDbSpinBox->value() * 1000);
+         m_save_all_in_infi_mode = ui->saveAllChkBox->isChecked();
     }
     
     update_ui_for_eng_sptrm_scan(true);
@@ -463,7 +470,13 @@ void Widget::OnFrameReady(quint16 *data)
         ++m_infi_scan_save_idx;
         if(m_infi_scan_save_idx == m_infi_save_freq)
         {
-            emit save_img_in_infinite_scan_sig();
+            if(m_save_all_in_infi_mode
+                || (m_global_timer.elapsed() - m_last_save_point_ms >= m_save_gap_ms)
+                || (0 == m_last_save_point_ms))
+            {
+                emit save_img_in_infinite_scan_sig();
+                m_last_save_point_ms = m_global_timer.elapsed();
+            }
             m_infi_scan_save_idx = 0;
         }
     }
@@ -898,6 +911,12 @@ void Widget::update_ui_according_to_work_mode()
     ui->linesToSaveLbl->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
     ui->linesToSaveLbl_2->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
     ui->linesToSaveSpinBox->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+    ui->saveInGapLbl->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+    ui->saveInGapDbSpinBox->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+    ui->saveInGapMinLbl->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+    ui->saveAllChkBox->setVisible(curr_mode == WORK_MODE_INIFINITE_SCAN);
+
+    ui->saveInGapDbSpinBox->setEnabled(!ui->saveAllChkBox->isChecked());
 
     ui->pushButton_5->setEnabled(curr_mode != WORK_MODE_INIFINITE_SCAN); //save image
 }
@@ -1104,5 +1123,11 @@ void Widget::on_manTimerScanRBtn_toggled(bool /*checked*/)
 void Widget::on_infiniteScanRBtn_toggled(bool /*checked*/)
 {
      update_ui_according_to_work_mode();
+}
+
+
+void Widget::on_saveAllChkBox_stateChanged(int /*arg1*/)
+{
+    ui->saveInGapDbSpinBox->setEnabled(!ui->saveAllChkBox->isChecked());
 }
 

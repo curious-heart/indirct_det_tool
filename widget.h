@@ -101,6 +101,8 @@ private slots:
 
     void on_infiniteScanRBtn_toggled(bool checked);
 
+    void on_saveAllChkBox_stateChanged(int arg1);
+
 private:
     // 初始化
     void InitMember();
@@ -155,6 +157,8 @@ private:
     QVector<quint16> m_infi_scan_buf;
     quint64 m_one_eng_px_num_in_buf;
     QElapsedTimer m_global_timer;
+    qint64 m_save_gap_ms, m_last_save_point_ms;
+    bool m_save_all_in_infi_mode;
 };
 
 #endif
