@@ -32,7 +32,8 @@ typedef enum
     APP_EXIT_HD_POWER_OFF,
 }app_exit_mode_e_t;
 
-QString common_tool_get_curr_dt_str(QString sep_d = "", QString sep_d_t = "", QString sep_t = "");
+QString common_tool_get_curr_dt_str(QString sep_d = "", QString sep_d_t = "", QString sep_t = "",
+                                    bool inc_zzz = false, QString sep_z = ".");
 QString common_tool_get_curr_date_str();
 QString common_tool_get_curr_time_str();
 

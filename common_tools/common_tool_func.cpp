@@ -18,11 +18,13 @@
 #include "common_tool_func.h"
 #include "logger/logger.h"
 
-QString common_tool_get_curr_dt_str(QString sep_d, QString sep_d_t, QString sep_t)
+QString common_tool_get_curr_dt_str(QString sep_d, QString sep_d_t, QString sep_t,
+                                    bool inc_zzz, QString sep_z)
 {
     QDateTime curDateTime = QDateTime::currentDateTime();
     QString fmt_str = QString("yyyy%1MM%2dd%3hh%4mm%5ss")
                         .arg(sep_d, sep_d, sep_d_t, sep_t, sep_t);
+    if(inc_zzz) fmt_str+= QString("%1zzz").arg(sep_z);
 
     QString dtstr = curDateTime.toString(fmt_str);
     return dtstr;

@@ -1060,8 +1060,29 @@ void Widget::save_img_data_to_file(file_save_mode_e_t save_mode)
 
             m_new_infi_scan_round = false;
         }
+        /*
         QString img_fn_pre_part = curr_sub_folder_s + "/" +
                 QString::number(m_global_timer.nsecsElapsed()) + "-";
+        */
+        QString img_fn_pre_part = curr_sub_folder_s + "/" +
+                common_tool_get_curr_dt_str("", "", "", true)
+                + "-";
+        /*get temperature*/
+        QList<quint16> temperature_list;
+        QString temp_str;
+        if(l103Controller->GetTempList(temperature_list))
+        {
+            for(int idx = 0; idx < temperature_list.size(); ++idx)
+            {
+                temp_str += QString::number(temperature_list[idx]) + "-";
+            }
+        }
+        else
+        {
+            temp_str = "no-temp";
+            DIY_LOG(LOG_ERROR, "get temperature fails.");
+        }
+        img_fn_pre_part += temp_str;
 
         quint16 * data_src = m_infi_scan_buf.data();
         for(quint8 i = 0; i < g_sptrum_threshold_num; ++i)
